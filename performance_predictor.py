@@ -2,8 +2,10 @@
 # Student Performance Predictor
 # Dataset: UCI Student Performance (student-mat.csv)
 # Algorithm: Decision Tree Classifier
+# Features: failures, studytime, absences, goout
 # ==========================================================
 
+import os
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -11,11 +13,18 @@ import seaborn as sns
 
 from sklearn.tree import DecisionTreeClassifier, plot_tree
 from sklearn.model_selection import train_test_split, cross_val_score
-from sklearn.preprocessing import MinMaxScaler, LabelEncoder
+from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import (
     accuracy_score, precision_score, recall_score,
     f1_score, confusion_matrix, classification_report
 )
+
+# Save images to the same folder as this script
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+def save(filename):
+    path = os.path.join(SCRIPT_DIR, filename)
+    plt.savefig(path, dpi=150, bbox_inches='tight')
+    print(f"Saved: {path}")
 
 # ----------------------------------------------------------
 # 1. LOAD DATASET
@@ -33,14 +42,16 @@ print("Total features:", len(df.columns))
 # 2. INITIAL DATA INSPECTION
 # ----------------------------------------------------------
 
+selected_raw = ["failures", "studytime", "absences", "goout", "G3"]
+
 print("\n--- Initial Data (Head) ---")
-print(df.head())
+print(df[selected_raw].head())
 
 print("\n--- Initial Data (Info) ---")
-print(df.info())
+print(df[selected_raw].info())
 
 print("\n--- Initial Data (Missing Values) ---")
-print(df.isnull().sum())
+print(df[selected_raw].isnull().sum())
 
 # ----------------------------------------------------------
 # 3. DATA CLEANING AND PREPROCESSING
@@ -48,44 +59,31 @@ print(df.isnull().sum())
 
 print("\n--- Data Cleaning ---")
 
-# Create binary target variable: Pass (1) if G3 >= 10, Fail (0) otherwise
+# Create binary target variable
 df["pass"] = (df["G3"] >= 10).astype(int)
 print("Target variable created: Pass =", df["pass"].sum(), "| Fail =", (df["pass"] == 0).sum())
 
-# Drop G1, G2, G3 to avoid data leakage (G3 is what we're predicting)
-df.drop(columns=["G1", "G2", "G3"], inplace=True)
+# Select only the 4 features + target
+features = ["failures", "studytime", "absences", "goout"]
+df = df[features + ["pass"]].copy()
 
-# Separate categorical and numerical columns
-categorical_cols = df.select_dtypes(include="object").columns.tolist()
-numerical_cols = df.select_dtypes(include=["int64", "float64"]).columns.tolist()
-numerical_cols.remove("pass")  # remove target from features
+print("\nFeatures selected:", features)
 
-print("\nCategorical columns:", categorical_cols)
-print("Numerical columns:", numerical_cols)
-
-# Label encode categorical columns
-le = LabelEncoder()
-for col in categorical_cols:
-    df[col] = le.fit_transform(df[col])
-
-print("\n--- Data After Encoding (Head) ---")
-print(df.head())
-
-# Normalize numerical columns
+# Normalize the 4 numerical features
 scaler = MinMaxScaler()
-df[numerical_cols] = scaler.fit_transform(df[numerical_cols])
+df[features] = scaler.fit_transform(df[features])
 
-print("\n--- Data After Normalization (Head, numerical columns) ---")
-print(df[numerical_cols].head())
+print("\n--- Data After Normalization (Head) ---")
+print(df[features].head())
 
 print("\n--- Data After Normalization (Descriptive Stats) ---")
-print(df[numerical_cols].describe())
+print(df[features].describe())
 
 # ----------------------------------------------------------
 # 4. SPLIT INTO TRAIN, VALIDATION, TEST SETS
 # ----------------------------------------------------------
 
-X = df.drop(columns=["pass"])
+X = df[features]
 y = df["pass"]
 
 # First split: 80% train+val, 20% test
@@ -119,11 +117,10 @@ for depth in depth_range:
     train_scores.append(accuracy_score(y_train, dt.predict(X_train)))
     val_scores.append(accuracy_score(y_val, dt.predict(X_val)))
 
-# Find best depth
 best_depth = depth_range[val_scores.index(max(val_scores))]
 print(f"Best max_depth: {best_depth} (Validation Accuracy: {max(val_scores):.4f})")
 
-# Plot max_depth vs accuracy
+# Plot
 plt.figure(figsize=(8, 5))
 plt.plot(depth_range, train_scores, label="Train Accuracy", marker="o")
 plt.plot(depth_range, val_scores, label="Validation Accuracy", marker="s")
@@ -133,9 +130,8 @@ plt.ylabel("Accuracy")
 plt.title("Decision Tree: max_depth vs Accuracy")
 plt.legend()
 plt.tight_layout()
-plt.savefig("hyperparameter_tuning.png", dpi=150)
+save("hyperparameter_tuning.png")
 plt.show()
-print("Saved: hyperparameter_tuning.png")
 
 # ----------------------------------------------------------
 # 6. TRAIN FINAL MODEL
@@ -190,39 +186,36 @@ plt.xlabel("Predicted")
 plt.ylabel("Actual")
 plt.title("Confusion Matrix")
 plt.tight_layout()
-plt.savefig("confusion_matrix.png", dpi=150)
+save("confusion_matrix.png")
 plt.show()
-print("Saved: confusion_matrix.png")
 
 # ----------------------------------------------------------
 # 10. FEATURE IMPORTANCE
 # ----------------------------------------------------------
 
 importances = best_dt.feature_importances_
-feature_names = X.columns
-feat_df = pd.DataFrame({"Feature": feature_names, "Importance": importances})
-feat_df = feat_df.sort_values("Importance", ascending=False).head(10)
+feat_df = pd.DataFrame({"Feature": features, "Importance": importances})
+feat_df = feat_df.sort_values("Importance", ascending=False)
 
-plt.figure(figsize=(8, 5))
-sns.barplot(x="Importance", y="Feature", data=feat_df, palette="viridis")
-plt.title("Top 10 Feature Importances")
+plt.figure(figsize=(7, 4))
+sns.barplot(x="Importance", y="Feature", data=feat_df,
+            hue="Feature", palette="viridis", legend=False)
+plt.title("Feature Importances")
 plt.tight_layout()
-plt.savefig("feature_importance.png", dpi=150)
+save("feature_importance.png")
 plt.show()
-print("Saved: feature_importance.png")
 
 # ----------------------------------------------------------
 # 11. DECISION TREE VISUALIZATION
 # ----------------------------------------------------------
 
-plt.figure(figsize=(20, 8))
-plot_tree(best_dt, feature_names=X.columns,
+plt.figure(figsize=(16, 8))
+plot_tree(best_dt, feature_names=features,
           class_names=["Fail", "Pass"],
-          filled=True, rounded=True, max_depth=3)
-plt.title("Decision Tree (max_depth shown: 3)")
+          filled=True, rounded=True)
+plt.title(f"Decision Tree (max_depth = {best_depth})")
 plt.tight_layout()
-plt.savefig("decision_tree.png", dpi=150)
+save("decision_tree.png")
 plt.show()
-print("Saved: decision_tree.png")
 
 print("\n✅ All done!")
